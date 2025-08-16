@@ -1,4 +1,4 @@
-// frontend/src/components/3d/ProjectCard3D.js - Исправленная версия
+// frontend/src/components/3d/ProjectCard3D.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useTexture, Float, Text } from '@react-three/drei';
@@ -75,7 +75,38 @@ const getImageBrightness = (() => {
   };
 })();
 
-// Главный компонент карточки проекта в стиле unveil.fr
+// ✅ ИСПРАВЛЕНИЕ: Создаем fallback текстуру
+const createFallbackTexture = () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const context = canvas.getContext('2d');
+  
+  // Создаем градиент
+  const gradient = context.createLinearGradient(0, 0, 512, 512);
+  gradient.addColorStop(0, '#f8fafc');
+  gradient.addColorStop(1, '#e2e8f0');
+  
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 512, 512);
+  
+  // Добавляем текст
+  context.fillStyle = '#64748b';
+  context.font = '24px Inter, sans-serif';
+  context.textAlign = 'center';
+  context.fillText('Loading...', 256, 256);
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.flipY = false;
+  
+  return texture;
+};
+
+// ✅ ИСПРАВЛЕНИЕ: Компонент с улучшенной обработкой текстур
 const ProjectCard3D = React.memo(({ 
   project, 
   position = [0, 0, 0], 
@@ -89,86 +120,130 @@ const ProjectCard3D = React.memo(({
   const groupRef = useRef();
   const frameRef = useRef();
   const shadowRef = useRef();
+  const materialRef = useRef();
   const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
   const [textColor, setTextColor] = useState('light');
+  const [textureError, setTextureError] = useState(false);
 
-  // Мемоизируем URL текстуры
-  const textureUrl = useMemo(() => 
-    project.imageUrl || '/api/placeholder/800/600'
-  , [project.imageUrl]);
+  // ✅ ИСПРАВЛЕНИЕ: Создаем fallback текстуру заранее
+  const fallbackTexture = useMemo(() => createFallbackTexture(), []);
 
-  // ✅ ИСПРАВЛЯЕМ ЗАГРУЗКУ ТЕКСТУРЫ - ДОБАВЛЯЕМ flipY = false
-  const texture = useTexture(textureUrl, (texture) => {
-    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.generateMipmaps = false;
-    texture.flipY = true; // ✅ УБИРАЕМ ПЕРЕВОРОТ
-  });
+  // ✅ ИСПРАВЛЕНИЕ: Мемоизируем URL текстуры с fallback
+  const textureUrl = useMemo(() => {
+    if (!project.imageUrl || textureError) {
+      return null; // Используем fallback текстуру
+    }
+    return project.imageUrl;
+  }, [project.imageUrl, textureError]);
+
+  // ✅ ИСПРАВЛЕНИЕ: Безопасная загрузка текстуры с обработкой ошибок
+  const texture = useTexture(
+    textureUrl || '', 
+    (loadedTexture) => {
+      if (loadedTexture && !textureError) {
+        // Настраиваем загруженную текстуру
+        loadedTexture.wrapS = loadedTexture.wrapT = THREE.ClampToEdgeWrapping;
+        loadedTexture.minFilter = THREE.LinearFilter;
+        loadedTexture.magFilter = THREE.LinearFilter;
+        loadedTexture.generateMipmaps = false;
+        loadedTexture.flipY = false;
+        
+        // Проверяем, что текстура загружена корректно
+        if (loadedTexture.image && loadedTexture.image.width > 0) {
+          console.log('✅ Texture loaded successfully:', textureUrl);
+        } else {
+          console.warn('⚠️ Texture loaded but image is invalid:', textureUrl);
+          setTextureError(true);
+        }
+      }
+    },
+    (error) => {
+      console.error('❌ Texture loading error:', error, 'URL:', textureUrl);
+      setTextureError(true);
+    }
+  );
+
+  // ✅ ИСПРАВЛЕНИЕ: Выбираем правильную текстуру
+  const activeTexture = useMemo(() => {
+    if (textureError || !texture || !textureUrl) {
+      return fallbackTexture;
+    }
+    return texture;
+  }, [texture, fallbackTexture, textureError, textureUrl]);
 
   // Определяем цвет текста на основе изображения
   useEffect(() => {
-    if (project.imageUrl) {
+    if (project.imageUrl && !textureError) {
       getImageBrightness(project.imageUrl).then(setTextColor);
     }
-  }, [project.imageUrl]);
+  }, [project.imageUrl, textureError]);
 
-  // Плавная анимация в стиле unveil.fr
+  // ✅ ИСПРАВЛЕНИЕ: Безопасный useFrame с проверками
   useFrame((state) => {
     if (!groupRef.current) return;
     
-    const time = state.clock.elapsedTime;
-    const floatY = Math.sin(time * 0.4 + index * 0.6) * 0.03;
-    const floatX = Math.cos(time * 0.3 + index * 0.4) * 0.02;
-    
-    // Основные позиции
-    const targetY = position[1] + floatY;
-    const targetX = position[0] + floatX;
-    
-    // Активное состояние
-    if (isActive || isSelected) {
-      const lift = isSelected ? 0.8 : 0.4;
-      const scale = isSelected ? 1.15 : 1.08;
+    try {
+      const time = state.clock.elapsedTime;
+      const floatY = Math.sin(time * 0.4 + index * 0.6) * 0.03;
+      const floatX = Math.cos(time * 0.3 + index * 0.4) * 0.02;
       
-      groupRef.current.position.y += (targetY + lift - groupRef.current.position.y) * 0.08;
-      groupRef.current.position.x += (targetX - groupRef.current.position.x) * 0.08;
-      groupRef.current.scale.setScalar(
-        groupRef.current.scale.x + (scale - groupRef.current.scale.x) * 0.08
-      );
+      // Основные позиции
+      const targetY = position[1] + floatY;
+      const targetX = position[0] + floatX;
       
-      // Легкое покачивание
-      groupRef.current.rotation.z = Math.sin(time * 0.8) * 0.005;
-      groupRef.current.rotation.x = Math.cos(time * 0.6) * 0.01;
-      
-    } else if (hovered) {
-      groupRef.current.position.y += (targetY + 0.15 - groupRef.current.position.y) * 0.1;
-      groupRef.current.position.x += (targetX - groupRef.current.position.x) * 0.1;
-      groupRef.current.scale.setScalar(
-        groupRef.current.scale.x + (1.05 - groupRef.current.scale.x) * 0.1
-      );
-      
-    } else {
-      // Обычное состояние
-      groupRef.current.position.y += (targetY - groupRef.current.position.y) * 0.06;
-      groupRef.current.position.x += (targetX - groupRef.current.position.x) * 0.06;
-      groupRef.current.scale.setScalar(
-        groupRef.current.scale.x + (1 - groupRef.current.scale.x) * 0.06
-      );
-      groupRef.current.rotation.z += (0 - groupRef.current.rotation.z) * 0.1;
-      groupRef.current.rotation.x += (0 - groupRef.current.rotation.x) * 0.1;
-    }
+      // Активное состояние
+      if (isActive || isSelected) {
+        const lift = isSelected ? 0.8 : 0.4;
+        const scale = isSelected ? 1.15 : 1.08;
+        
+        groupRef.current.position.y += (targetY + lift - groupRef.current.position.y) * 0.08;
+        groupRef.current.position.x += (targetX - groupRef.current.position.x) * 0.08;
+        groupRef.current.scale.setScalar(
+          groupRef.current.scale.x + (scale - groupRef.current.scale.x) * 0.08
+        );
+        
+        // Легкое покачивание
+        groupRef.current.rotation.z = Math.sin(time * 0.8) * 0.005;
+        groupRef.current.rotation.x = Math.cos(time * 0.6) * 0.01;
+        
+      } else if (hovered) {
+        groupRef.current.position.y += (targetY + 0.15 - groupRef.current.position.y) * 0.1;
+        groupRef.current.position.x += (targetX - groupRef.current.position.x) * 0.1;
+        groupRef.current.scale.setScalar(
+          groupRef.current.scale.x + (1.05 - groupRef.current.scale.x) * 0.1
+        );
+        
+      } else {
+        // Обычное состояние
+        groupRef.current.position.y += (targetY - groupRef.current.position.y) * 0.06;
+        groupRef.current.position.x += (targetX - groupRef.current.position.x) * 0.06;
+        groupRef.current.scale.setScalar(
+          groupRef.current.scale.x + (1 - groupRef.current.scale.x) * 0.06
+        );
+        groupRef.current.rotation.z += (0 - groupRef.current.rotation.z) * 0.1;
+        groupRef.current.rotation.x += (0 - groupRef.current.rotation.x) * 0.1;
+      }
 
-    // Обновление тени
-    if (shadowRef.current) {
-      const shadowOpacity = (isActive || isSelected) ? 0.25 : hovered ? 0.15 : 0.08;
-      shadowRef.current.material.opacity += (shadowOpacity - shadowRef.current.material.opacity) * 0.1;
-    }
+      // Обновление тени
+      if (shadowRef.current) {
+        const shadowOpacity = (isActive || isSelected) ? 0.25 : hovered ? 0.15 : 0.08;
+        shadowRef.current.material.opacity += (shadowOpacity - shadowRef.current.material.opacity) * 0.1;
+      }
 
-    // Обновление рамки
-    if (frameRef.current) {
-      const frameColor = (isActive || isSelected) ? '#000000' : hovered ? '#18181b' : '#e4e4e7';
-      frameRef.current.material.color.lerp(new THREE.Color(frameColor), 0.1);
+      // Обновление рамки
+      if (frameRef.current) {
+        const frameColor = (isActive || isSelected) ? '#000000' : hovered ? '#18181b' : '#e4e4e7';
+        frameRef.current.material.color.lerp(new THREE.Color(frameColor), 0.1);
+      }
+
+      // ✅ ИСПРАВЛЕНИЕ: Проверяем материал перед обновлением
+      if (materialRef.current && activeTexture) {
+        materialRef.current.map = activeTexture;
+        materialRef.current.needsUpdate = true;
+      }
+    } catch (error) {
+      console.error('❌ Error in useFrame:', error);
     }
   });
 
@@ -241,15 +316,20 @@ const ProjectCard3D = React.memo(({
           />
         </mesh>
 
-        {/* Основная карточка */}
+        {/* ✅ ИСПРАВЛЕНИЕ: Основная карточка с безопасным материалом */}
         <mesh ref={meshRef} position={[0, 0, 0]}>
           <boxGeometry args={[4, 5.6, 0.08]} />
           <meshStandardMaterial
-            map={texture}
+            ref={materialRef}
+            map={activeTexture}
             transparent
             opacity={isActive || isSelected ? 1 : hovered ? 0.98 : 0.92}
             roughness={0.1}
             metalness={0.02}
+            // ✅ ИСПРАВЛЕНИЕ: Добавляем onBeforeCompile для отладки
+            onBeforeCompile={(shader) => {
+              console.log('🔧 Shader compiled for project:', project.title);
+            }}
           />
         </mesh>
 
@@ -301,8 +381,8 @@ const ProjectCard3D = React.memo(({
           </mesh>
         )}
 
-        {/* Текстовая информация (опционально) */}
-        {(isActive || isSelected) && (
+        {/* ✅ ИСПРАВЛЕНИЕ: Условный текст только если нет ошибок */}
+        {(isActive || isSelected) && !textureError && (
           <Text
             position={[0, -3.8, 0.2]}
             fontSize={0.2}
@@ -316,12 +396,20 @@ const ProjectCard3D = React.memo(({
             {project.title}
           </Text>
         )}
+
+        {/* ✅ ИСПРАВЛЕНИЕ: Индикатор ошибки загрузки */}
+        {textureError && (
+          <mesh position={[0, 0, 0.05]}>
+            <planeGeometry args={[1, 0.3]} />
+            <meshBasicMaterial color="#ef4444" transparent opacity={0.8} />
+          </mesh>
+        )}
       </group>
     </Float>
   );
 });
 
-// Компонент сетки проектов в стиле unveil.fr
+// ✅ ИСПРАВЛЕНИЕ: Обновленные компоненты с обработкой ошибок
 export const ProjectGrid3D = ({ projects = [], onProjectClick }) => {
   const groupRef = useRef();
   const [hoveredProject, setHoveredProject] = useState(null);
@@ -348,9 +436,13 @@ export const ProjectGrid3D = ({ projects = [], onProjectClick }) => {
   // Плавная анимация группы
   useFrame((state) => {
     if (groupRef.current) {
-      const time = state.clock.elapsedTime;
-      groupRef.current.rotation.y = Math.sin(time * 0.1) * 0.01;
-      groupRef.current.position.y = Math.sin(time * 0.2) * 0.05;
+      try {
+        const time = state.clock.elapsedTime;
+        groupRef.current.rotation.y = Math.sin(time * 0.1) * 0.01;
+        groupRef.current.position.y = Math.sin(time * 0.2) * 0.05;
+      } catch (error) {
+        console.error('❌ Error in ProjectGrid3D useFrame:', error);
+      }
     }
   });
 
@@ -376,11 +468,10 @@ export const ProjectGrid3D = ({ projects = [], onProjectClick }) => {
   );
 };
 
-// Компонент карусели проектов в стиле unveil.fr
+// ✅ ИСПРАВЛЕНИЕ: Аналогичные исправления для других компонентов
 export const ProjectCarousel3D = ({ projects = [], currentIndex = 0, onProjectClick }) => {
   const groupRef = useRef();
 
-  // Круговое расположение
   const getCarouselPosition = (index, total) => {
     const radius = 6;
     const angleStep = (Math.PI * 2) / Math.max(total, 1);
@@ -393,11 +484,14 @@ export const ProjectCarousel3D = ({ projects = [], currentIndex = 0, onProjectCl
     return [x, y, z];
   };
 
-  // Вращение к текущему проекту
   useFrame(() => {
     if (groupRef.current && projects.length > 0) {
-      const targetRotation = (currentIndex * Math.PI * 2) / projects.length;
-      groupRef.current.rotation.y += (targetRotation - groupRef.current.rotation.y) * 0.05;
+      try {
+        const targetRotation = (currentIndex * Math.PI * 2) / projects.length;
+        groupRef.current.rotation.y += (targetRotation - groupRef.current.rotation.y) * 0.05;
+      } catch (error) {
+        console.error('❌ Error in ProjectCarousel3D useFrame:', error);
+      }
     }
   });
 
@@ -417,11 +511,9 @@ export const ProjectCarousel3D = ({ projects = [], currentIndex = 0, onProjectCl
   );
 };
 
-// Компонент спирального расположения в стиле unveil.fr
 export const ProjectSpiral3D = ({ projects = [], activeIndex = 0, onProjectClick }) => {
   const groupRef = useRef();
 
-  // Спиральное расположение
   const getSpiralPosition = (index, total) => {
     const baseRadius = 4;
     const heightStep = 1.2;
@@ -438,17 +530,17 @@ export const ProjectSpiral3D = ({ projects = [], activeIndex = 0, onProjectClick
     return [x, y, z];
   };
 
-  // Автоматическое вращение для лучшего обзора
   useFrame((state) => {
     if (groupRef.current) {
-      const time = state.clock.elapsedTime;
-      
-      // Медленное вращение
-      groupRef.current.rotation.y = time * 0.1;
-      
-      // Фокус на активном проекте
-      const targetY = -activeIndex * 1.2;
-      groupRef.current.position.y += (targetY - groupRef.current.position.y) * 0.03;
+      try {
+        const time = state.clock.elapsedTime;
+        groupRef.current.rotation.y = time * 0.1;
+        
+        const targetY = -activeIndex * 1.2;
+        groupRef.current.position.y += (targetY - groupRef.current.position.y) * 0.03;
+      } catch (error) {
+        console.error('❌ Error in ProjectSpiral3D useFrame:', error);
+      }
     }
   });
 
@@ -468,5 +560,4 @@ export const ProjectSpiral3D = ({ projects = [], activeIndex = 0, onProjectClick
   );
 };
 
-// Основной экспорт
 export default ProjectCard3D;

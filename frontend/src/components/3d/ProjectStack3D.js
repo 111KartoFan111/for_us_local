@@ -1,9 +1,46 @@
-// frontend/src/components/3d/ProjectStack3D.js - НОВАЯ ВЕРСИЯ: Вертикальный стек под углом 25°
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+// frontend/src/components/3d/ProjectStack3D.js - ИСПРАВЛЕННАЯ ВЕРСИЯ с обработкой ошибок
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useTexture } from '@react-three/drei';
 import { useNavigate } from 'react-router-dom';
 import * as THREE from 'three';
+
+// ✅ ИСПРАВЛЕНИЕ: Создаем fallback текстуру
+const createFallbackTexture = (title = 'Loading') => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 400;
+  canvas.height = 300;
+  const context = canvas.getContext('2d');
+  
+  // Создаем градиент
+  const gradient = context.createLinearGradient(0, 0, 400, 300);
+  gradient.addColorStop(0, '#f8fafc');
+  gradient.addColorStop(1, '#e2e8f0');
+  
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 400, 300);
+  
+  // Добавляем круг
+  context.beginPath();
+  context.arc(200, 150, 50, 0, 2 * Math.PI);
+  context.fillStyle = '#cbd5e1';
+  context.fill();
+  
+  // Добавляем текст
+  context.fillStyle = '#64748b';
+  context.font = '16px Inter, sans-serif';
+  context.textAlign = 'center';
+  context.fillText(title, 200, 250);
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.flipY = false;
+  
+  return texture;
+};
 
 const ProjectCarouselCard = React.memo(({ 
   project, 
@@ -16,70 +53,107 @@ const ProjectCarouselCard = React.memo(({
 }) => {
   const meshRef = useRef();
   const groupRef = useRef();
+  const materialRef = useRef();
   const navigate = useNavigate();
+  const [textureError, setTextureError] = useState(false);
 
-  const textureUrl = project.imageUrl || `data:image/svg+xml;base64,${btoa(`
-    <svg width="400" height="300" viewBox="0 0 400 300" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="400" height="300" fill="#f8fafc"/>
-      <circle cx="200" cy="150" r="50" fill="#cbd5e1"/>
-      <text x="200" y="250" text-anchor="middle" fill="#64748b" font-family="system-ui" font-size="16" font-weight="500">${project.title}</text>
-    </svg>
-  `)}`;
+  // ✅ ИСПРАВЛЕНИЕ: Создаем fallback текстуру
+  const fallbackTexture = useMemo(() => createFallbackTexture(project.title), [project.title]);
 
-  const texture = useTexture(textureUrl, (texture) => {
-    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.flipY = true;
-  });
+  // ✅ ИСПРАВЛЕНИЕ: Безопасная обработка URL текстуры
+  const textureUrl = useMemo(() => {
+    if (!project.imageUrl || textureError) {
+      return null;
+    }
+    return project.imageUrl;
+  }, [project.imageUrl, textureError]);
+
+  // ✅ ИСПРАВЛЕНИЕ: Безопасная загрузка текстуры
+  const texture = useTexture(
+    textureUrl || '',
+    (loadedTexture) => {
+      if (loadedTexture && !textureError) {
+        loadedTexture.wrapS = loadedTexture.wrapT = THREE.ClampToEdgeWrapping;
+        loadedTexture.minFilter = THREE.LinearFilter;
+        loadedTexture.magFilter = THREE.LinearFilter;
+        loadedTexture.generateMipmaps = false;
+        loadedTexture.flipY = false;
+        
+        console.log('✅ Stack texture loaded:', project.title);
+      }
+    },
+    (error) => {
+      console.error('❌ Stack texture error:', error, 'Project:', project.title);
+      setTextureError(true);
+    }
+  );
+
+  // ✅ ИСПРАВЛЕНИЕ: Выбираем правильную текстуру
+  const activeTexture = useMemo(() => {
+    if (textureError || !texture || !textureUrl) {
+      return fallbackTexture;
+    }
+    return texture;
+  }, [texture, fallbackTexture, textureError, textureUrl]);
 
   // Адаптивные размеры карточек
   const cardSize = isMobile ? [2.5, 1.875] : [3.5, 2.625]; // 4:3 пропорции
 
+  // ✅ ИСПРАВЛЕНИЕ: Безопасный useFrame
   useFrame((state) => {
     if (!groupRef.current) return;
     
-    const time = state.clock.elapsedTime;
-    
-    // Плавный переход к позиции
-    groupRef.current.position.x += (position[0] - groupRef.current.position.x) * 0.08;
-    groupRef.current.position.y += (position[1] - groupRef.current.position.y) * 0.08;
-    groupRef.current.position.z += (position[2] - groupRef.current.position.z) * 0.08;
-    
-    // Легкое покачивание только для неактивных карточек
-    if (!isActive) {
-      const floatY = Math.sin(time * 0.6 + index * 0.8) * 0.02;
-      const floatX = Math.cos(time * 0.4 + index * 0.6) * 0.015;
-      groupRef.current.position.y += floatY;
-      groupRef.current.position.x += floatX;
-    }
-    
-    // Поворот карточек под углом 25°
-    const targetRotationX = isActive ? -0.1 : -0.436; // -25° = -0.436 радиан
-    const targetRotationY = isActive ? 0.05 : 0;
-    const targetScale = isActive ? 1.1 : 1;
-    
-    groupRef.current.rotation.x += (targetRotationX - groupRef.current.rotation.x) * 0.08;
-    groupRef.current.rotation.y += (targetRotationY - groupRef.current.rotation.y) * 0.08;
-    groupRef.current.scale.setScalar(
-      groupRef.current.scale.x + (targetScale - groupRef.current.scale.x) * 0.08
-    );
-    
-    // Поворот к камере для лучшей видимости
-    if (meshRef.current && state.camera) {
-      const direction = new THREE.Vector3();
-      meshRef.current.getWorldPosition(direction);
-      direction.sub(state.camera.position).normalize();
+    try {
+      const time = state.clock.elapsedTime;
       
-      // Корректировка поворота с учетом наклона
-      const lookAtRotation = new THREE.Euler(
-        targetRotationX,
-        Math.atan2(direction.x, direction.z) * 0.1,
-        0
+      // Плавный переход к позиции
+      groupRef.current.position.x += (position[0] - groupRef.current.position.x) * 0.08;
+      groupRef.current.position.y += (position[1] - groupRef.current.position.y) * 0.08;
+      groupRef.current.position.z += (position[2] - groupRef.current.position.z) * 0.08;
+      
+      // Легкое покачивание только для неактивных карточек
+      if (!isActive) {
+        const floatY = Math.sin(time * 0.6 + index * 0.8) * 0.02;
+        const floatX = Math.cos(time * 0.4 + index * 0.6) * 0.015;
+        groupRef.current.position.y += floatY;
+        groupRef.current.position.x += floatX;
+      }
+      
+      // Поворот карточек под углом 25°
+      const targetRotationX = isActive ? -0.1 : -0.436; // -25° = -0.436 радиан
+      const targetRotationY = isActive ? 0.05 : 0;
+      const targetScale = isActive ? 1.1 : 1;
+      
+      groupRef.current.rotation.x += (targetRotationX - groupRef.current.rotation.x) * 0.08;
+      groupRef.current.rotation.y += (targetRotationY - groupRef.current.rotation.y) * 0.08;
+      groupRef.current.scale.setScalar(
+        groupRef.current.scale.x + (targetScale - groupRef.current.scale.x) * 0.08
       );
       
-      meshRef.current.rotation.x += (lookAtRotation.x - meshRef.current.rotation.x) * 0.05;
-      meshRef.current.rotation.y += (lookAtRotation.y - meshRef.current.rotation.y) * 0.05;
+      // ✅ ИСПРАВЛЕНИЕ: Безопасное обновление материала
+      if (materialRef.current && activeTexture) {
+        materialRef.current.map = activeTexture;
+        materialRef.current.needsUpdate = true;
+      }
+      
+      // Поворот к камере для лучшей видимости
+      if (meshRef.current && state.camera) {
+        const direction = new THREE.Vector3();
+        meshRef.current.getWorldPosition(direction);
+        direction.sub(state.camera.position).normalize();
+        
+        // Корректировка поворота с учетом наклона
+        const lookAtRotation = new THREE.Euler(
+          targetRotationX,
+          Math.atan2(direction.x, direction.z) * 0.1,
+          0
+        );
+        
+        meshRef.current.rotation.x += (lookAtRotation.x - meshRef.current.rotation.x) * 0.05;
+        meshRef.current.rotation.y += (lookAtRotation.y - meshRef.current.rotation.y) * 0.05;
+      }
+    } catch (error) {
+      console.error('❌ Error in ProjectCarouselCard useFrame:', error);
     }
   });
 
@@ -128,10 +202,15 @@ const ProjectCarouselCard = React.memo(({
       >
         <planeGeometry args={cardSize} />
         <meshBasicMaterial
-          map={texture}
+          ref={materialRef}
+          map={activeTexture}
           side={THREE.DoubleSide}
           transparent
           opacity={isActive ? 1 : 0.9}
+          // ✅ ИСПРАВЛЕНИЕ: Добавляем обработку ошибок компиляции шейдера
+          onBeforeCompile={(shader) => {
+            console.log('🔧 Stack shader compiled for:', project.title);
+          }}
         />
       </mesh>
 
@@ -164,6 +243,14 @@ const ProjectCarouselCard = React.memo(({
           />
         </mesh>
       )}
+
+      {/* Индикатор ошибки загрузки */}
+      {textureError && (
+        <mesh position={[cardSize[0] * 0.4, cardSize[1] * 0.4, 0.01]}>
+          <circleGeometry args={[0.05, 8]} />
+          <meshBasicMaterial color="#ef4444" />
+        </mesh>
+      )}
     </group>
   );
 });
@@ -176,7 +263,7 @@ const isMobileDevice = () => {
   );
 };
 
-// Обработчик скролла для разных устройств
+// ✅ ИСПРАВЛЕНИЕ: Улучшенный обработчик скролла с error handling
 const useAdvancedScroll = (onScroll, projects) => {
   const scrollState = useRef({
     isScrolling: false,
@@ -190,96 +277,115 @@ const useAdvancedScroll = (onScroll, projects) => {
 
   // Обработчик колесика мыши
   const handleWheel = useCallback((event) => {
-    event.preventDefault();
-    
-    const now = Date.now();
-    const deltaTime = now - scrollState.current.lastTime;
-    scrollState.current.lastTime = now;
+    try {
+      event.preventDefault();
+      
+      const now = Date.now();
+      const deltaTime = now - scrollState.current.lastTime;
+      scrollState.current.lastTime = now;
 
-    // Нормализуем deltaY
-    let normalizedDelta = event.deltaY;
-    if (event.deltaMode === 1) normalizedDelta *= 16;
-    else if (event.deltaMode === 2) normalizedDelta *= window.innerHeight;
-    
-    // Адаптивная чувствительность
-    const isMobile = isMobileDevice();
-    const sensitivity = isMobile ? 0.15 : 0.25;
-    normalizedDelta *= sensitivity;
-    
-    if (Math.abs(normalizedDelta) < 1) return;
+      // Нормализуем deltaY
+      let normalizedDelta = event.deltaY;
+      if (event.deltaMode === 1) normalizedDelta *= 16;
+      else if (event.deltaMode === 2) normalizedDelta *= window.innerHeight;
+      
+      // Адаптивная чувствительность
+      const isMobile = isMobileDevice();
+      const sensitivity = isMobile ? 0.15 : 0.25;
+      normalizedDelta *= sensitivity;
+      
+      if (Math.abs(normalizedDelta) < 1) return;
 
-    scrollState.current.accumulator += normalizedDelta;
-    
-    // Порог срабатывания
-    const threshold = isMobile ? 12 : 20;
-    
-    if (Math.abs(scrollState.current.accumulator) >= threshold) {
-      const direction = scrollState.current.accumulator > 0 ? 1 : -1;
-      onScroll(direction);
-      scrollState.current.accumulator = 0;
+      scrollState.current.accumulator += normalizedDelta;
+      
+      // Порог срабатывания
+      const threshold = isMobile ? 12 : 20;
+      
+      if (Math.abs(scrollState.current.accumulator) >= threshold) {
+        const direction = scrollState.current.accumulator > 0 ? 1 : -1;
+        onScroll(direction);
+        scrollState.current.accumulator = 0;
+      }
+
+      // Сброс накопителя через время
+      if (scrollState.current.scrollTimeout) {
+        clearTimeout(scrollState.current.scrollTimeout);
+      }
+      
+      scrollState.current.scrollTimeout = setTimeout(() => {
+        scrollState.current.accumulator = 0;
+      }, 150);
+    } catch (error) {
+      console.error('❌ Error in handleWheel:', error);
     }
-
-    // Сброс накопителя через время
-    if (scrollState.current.scrollTimeout) {
-      clearTimeout(scrollState.current.scrollTimeout);
-    }
-    
-    scrollState.current.scrollTimeout = setTimeout(() => {
-      scrollState.current.accumulator = 0;
-    }, 150);
-    
   }, [onScroll]);
 
   // Обработчик touch событий для мобильных
   const handleTouchStart = useCallback((event) => {
-    const touch = event.touches[0];
-    scrollState.current.touchStartY = touch.clientY;
-    scrollState.current.touchStartTime = Date.now();
-    scrollState.current.momentum = 0;
+    try {
+      const touch = event.touches[0];
+      scrollState.current.touchStartY = touch.clientY;
+      scrollState.current.touchStartTime = Date.now();
+      scrollState.current.momentum = 0;
+    } catch (error) {
+      console.error('❌ Error in handleTouchStart:', error);
+    }
   }, []);
 
   const handleTouchMove = useCallback((event) => {
-    event.preventDefault(); // Предотвращаем скролл страницы
+    try {
+      event.preventDefault(); // Предотвращаем скролл страницы
+    } catch (error) {
+      console.error('❌ Error in handleTouchMove:', error);
+    }
   }, []);
 
   const handleTouchEnd = useCallback((event) => {
-    const touch = event.changedTouches[0];
-    const touchEndY = touch.clientY;
-    const touchEndTime = Date.now();
-    
-    const deltaY = scrollState.current.touchStartY - touchEndY;
-    const deltaTime = touchEndTime - scrollState.current.touchStartTime;
-    
-    // Минимальное расстояние и время для срабатывания
-    if (Math.abs(deltaY) > 50 && deltaTime < 500) {
-      const direction = deltaY > 0 ? 1 : -1;
-      onScroll(direction);
+    try {
+      const touch = event.changedTouches[0];
+      const touchEndY = touch.clientY;
+      const touchEndTime = Date.now();
+      
+      const deltaY = scrollState.current.touchStartY - touchEndY;
+      const deltaTime = touchEndTime - scrollState.current.touchStartTime;
+      
+      // Минимальное расстояние и время для срабатывания
+      if (Math.abs(deltaY) > 50 && deltaTime < 500) {
+        const direction = deltaY > 0 ? 1 : -1;
+        onScroll(direction);
+      }
+    } catch (error) {
+      console.error('❌ Error in handleTouchEnd:', error);
     }
   }, [onScroll]);
 
   useEffect(() => {
     const isMobile = isMobileDevice();
     
-    // Добавляем обработчики
-    window.addEventListener('wheel', handleWheel, { passive: false });
-    
-    if (isMobile) {
-      window.addEventListener('touchstart', handleTouchStart, { passive: true });
-      window.addEventListener('touchmove', handleTouchMove, { passive: false });
-      window.addEventListener('touchend', handleTouchEnd, { passive: true });
-    }
-    
-    return () => {
-      window.removeEventListener('wheel', handleWheel);
+    try {
+      // Добавляем обработчики
+      window.addEventListener('wheel', handleWheel, { passive: false });
+      
       if (isMobile) {
-        window.removeEventListener('touchstart', handleTouchStart);
-        window.removeEventListener('touchmove', handleTouchMove);
-        window.removeEventListener('touchend', handleTouchEnd);
+        window.addEventListener('touchstart', handleTouchStart, { passive: true });
+        window.addEventListener('touchmove', handleTouchMove, { passive: false });
+        window.addEventListener('touchend', handleTouchEnd, { passive: true });
       }
-      if (scrollState.current.scrollTimeout) {
-        clearTimeout(scrollState.current.scrollTimeout);
-      }
-    };
+      
+      return () => {
+        window.removeEventListener('wheel', handleWheel);
+        if (isMobile) {
+          window.removeEventListener('touchstart', handleTouchStart);
+          window.removeEventListener('touchmove', handleTouchMove);
+          window.removeEventListener('touchend', handleTouchEnd);
+        }
+        if (scrollState.current.scrollTimeout) {
+          clearTimeout(scrollState.current.scrollTimeout);
+        }
+      };
+    } catch (error) {
+      console.error('❌ Error setting up scroll listeners:', error);
+    }
   }, [handleWheel, handleTouchStart, handleTouchMove, handleTouchEnd]);
 };
 
@@ -287,25 +393,29 @@ const useAdvancedScroll = (onScroll, projects) => {
 const useKeyboardNavigation = (onNavigate, projects) => {
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
-        return;
-      }
-      
-      switch (event.key) {
-        case 'ArrowUp':
-        case 'ArrowLeft':
-          event.preventDefault();
-          onNavigate(-1);
-          break;
-        case 'ArrowDown':
-        case 'ArrowRight':
-          event.preventDefault();
-          onNavigate(1);
-          break;
-        case ' ': // Пробел
-          event.preventDefault();
-          onNavigate(1);
-          break;
+      try {
+        if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+          return;
+        }
+        
+        switch (event.key) {
+          case 'ArrowUp':
+          case 'ArrowLeft':
+            event.preventDefault();
+            onNavigate(-1);
+            break;
+          case 'ArrowDown':
+          case 'ArrowRight':
+            event.preventDefault();
+            onNavigate(1);
+            break;
+          case ' ': // Пробел
+            event.preventDefault();
+            onNavigate(1);
+            break;
+        }
+      } catch (error) {
+        console.error('❌ Error in keyboard navigation:', error);
       }
     };
 
@@ -314,19 +424,24 @@ const useKeyboardNavigation = (onNavigate, projects) => {
   }, [onNavigate, projects.length]);
 };
 
-// Основной компонент стека под углом 25°
+// ✅ ИСПРАВЛЕНИЕ: Основной компонент стека с улучшенной обработкой ошибок
 export const ProjectStack3D = ({ projects = [], onProjectClick }) => {
   const groupRef = useRef();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [hoveredProject, setHoveredProject] = useState(null);
   const [isMobile, setIsMobile] = useState(isMobileDevice());
+  const [error, setError] = useState(null);
   
   const { viewport, camera } = useThree();
   
   useEffect(() => {
     const handleResize = () => {
-      setIsMobile(isMobileDevice());
+      try {
+        setIsMobile(isMobileDevice());
+      } catch (error) {
+        console.error('❌ Error in resize handler:', error);
+      }
     };
 
     window.addEventListener('resize', handleResize);
@@ -335,17 +450,22 @@ export const ProjectStack3D = ({ projects = [], onProjectClick }) => {
 
   // Навигация между проектами
   const navigate = useCallback((direction) => {
-    if (isTransitioning || projects.length === 0) return;
-    
-    setIsTransitioning(true);
-    
-    const newIndex = (currentIndex + direction + projects.length) % projects.length;
-    setCurrentIndex(newIndex);
-    
-    setTimeout(() => {
+    try {
+      if (isTransitioning || projects.length === 0) return;
+      
+      setIsTransitioning(true);
+      
+      const newIndex = (currentIndex + direction + projects.length) % projects.length;
+      setCurrentIndex(newIndex);
+      
+      setTimeout(() => {
+        setIsTransitioning(false);
+      }, 400);
+    } catch (error) {
+      console.error('❌ Error in navigate:', error);
+      setError(error.message);
       setIsTransitioning(false);
-    }, 400);
-    
+    }
   }, [currentIndex, projects.length, isTransitioning]);
 
   // Подключаем управление
@@ -354,68 +474,91 @@ export const ProjectStack3D = ({ projects = [], onProjectClick }) => {
 
   // Позиционирование карточек в вертикальном стеке
   const getStackPosition = (index) => {
-    const spacing = isMobile ? 1.8 : 2.2; // Расстояние между карточками
-    const relativeIndex = index - currentIndex;
-    
-    // Позиция по Y - основная ось стека (снизу вверх)
-    let y = relativeIndex * spacing;
-    
-    // Позиция по Z - глубина с учетом угла 25°
-    let z = Math.abs(relativeIndex) * -0.5; // Дальние карточки глубже
-    
-    // Позиция по X - легкое смещение для эффекта
-    let x = relativeIndex * 0.1;
-    
-    // Ограничиваем видимые карточки
-    const maxVisible = isMobile ? 3 : 5;
-    if (Math.abs(relativeIndex) > maxVisible) {
-      y += relativeIndex > 0 ? maxVisible * spacing : -maxVisible * spacing;
-      z -= 2; // Скрываем далеко
+    try {
+      const spacing = isMobile ? 1.8 : 2.2;
+      const relativeIndex = index - currentIndex;
+      
+      let y = relativeIndex * spacing;
+      let z = Math.abs(relativeIndex) * -0.5;
+      let x = relativeIndex * 0.1;
+      
+      const maxVisible = isMobile ? 3 : 5;
+      if (Math.abs(relativeIndex) > maxVisible) {
+        y += relativeIndex > 0 ? maxVisible * spacing : -maxVisible * spacing;
+        z -= 2;
+      }
+      
+      return [x, y, z];
+    } catch (error) {
+      console.error('❌ Error in getStackPosition:', error);
+      return [0, 0, 0];
     }
-    
-    return [x, y, z];
   };
 
-  // Анимация группы
+  // ✅ ИСПРАВЛЕНИЕ: Безопасная анимация группы
   useFrame((state) => {
     if (groupRef.current && projects.length > 0) {
-      const time = state.clock.elapsedTime;
-      
-      // Легкое покачивание всей группы
-      groupRef.current.rotation.z = Math.sin(time * 0.3) * 0.005;
-      
-      // Настройка позиции группы для лучшего обзора
-      const targetY = 0;
-      const targetX = 0;
-      
-      groupRef.current.position.y += (targetY - groupRef.current.position.y) * 0.05;
-      groupRef.current.position.x += (targetX - groupRef.current.position.x) * 0.05;
+      try {
+        const time = state.clock.elapsedTime;
+        
+        // Легкое покачивание всей группы
+        groupRef.current.rotation.z = Math.sin(time * 0.3) * 0.005;
+        
+        // Настройка позиции группы для лучшего обзора
+        const targetY = 0;
+        const targetX = 0;
+        
+        groupRef.current.position.y += (targetY - groupRef.current.position.y) * 0.05;
+        groupRef.current.position.x += (targetX - groupRef.current.position.x) * 0.05;
+      } catch (error) {
+        console.error('❌ Error in ProjectStack3D useFrame:', error);
+      }
     }
   });
 
   // Настройка камеры для наклонного вида
   useEffect(() => {
-    if (camera && projects.length > 0) {
-      // Позиция камеры для лучшего обзора стека под углом
-      const targetPosition = isMobile 
-        ? new THREE.Vector3(0, 1, 5)   // Мобильная позиция - ближе и чуть выше
-        : new THREE.Vector3(0, 1.5, 6); // Десктопная позиция
-      
-      // Плавно перемещаем камеру
-      camera.position.lerp(targetPosition, 0.05);
-      
-      // Камера смотрит немного вниз для лучшего обзора стека
-      const lookAtTarget = new THREE.Vector3(0, -0.5, 0);
-      camera.lookAt(lookAtTarget);
-      
-      // Обновляем матрицы камеры
-      camera.updateProjectionMatrix();
+    try {
+      if (camera && projects.length > 0) {
+        const targetPosition = isMobile 
+          ? new THREE.Vector3(0, 1, 5)
+          : new THREE.Vector3(0, 1.5, 6);
+        
+        camera.position.lerp(targetPosition, 0.05);
+        
+        const lookAtTarget = new THREE.Vector3(0, -0.5, 0);
+        camera.lookAt(lookAtTarget);
+        
+        camera.updateProjectionMatrix();
+      }
+    } catch (error) {
+      console.error('❌ Error in camera setup:', error);
     }
   }, [camera, isMobile, projects.length]);
 
   const handleProjectHover = (project, isHovered) => {
-    setHoveredProject(isHovered ? project : null);
+    try {
+      setHoveredProject(isHovered ? project : null);
+    } catch (error) {
+      console.error('❌ Error in handleProjectHover:', error);
+    }
   };
+
+  // Показываем ошибку если что-то пошло не так
+  if (error) {
+    return (
+      <group>
+        <mesh>
+          <planeGeometry args={[4, 2]} />
+          <meshBasicMaterial color="#ef4444" />
+        </mesh>
+        <mesh position={[0, -1, 0.01]}>
+          <planeGeometry args={[3, 0.5]} />
+          <meshBasicMaterial color="#ffffff" />
+        </mesh>
+      </group>
+    );
+  }
 
   if (projects.length === 0) {
     return null;
@@ -488,7 +631,6 @@ export const ProjectStack3D = ({ projects = [], onProjectClick }) => {
             opacity={0.9}
           />
         </mesh>
-        {/* Здесь можно добавить 3D текст для счетчика */}
       </group>
     </>
   );
