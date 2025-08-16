@@ -1,5 +1,5 @@
-// frontend/src/hooks/useMobileScroll.js - Полная версия с импортами
-import { useEffect, useRef, useCallback, useState } from 'react';
+// frontend/src/hooks/useMobileScroll.js - Хук для управления скроллом на мобильных
+import { useEffect, useRef, useCallback } from 'react';
 
 export const useMobileScroll = (onScroll, options = {}) => {
   const {
@@ -38,10 +38,14 @@ export const useMobileScroll = (onScroll, options = {}) => {
       if (navigator.vibrate) {
         navigator.vibrate(10); // Короткая вибрация
       }
+      // Для iOS Safari
+      if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
+        // iOS haptic через CSS или Web API (если доступно)
+      }
     } catch (error) {
       // Игнорируем ошибки haptic feedback
     }
-  }, [enableHaptic, isMobile]);
+  }, [enableHaptic]);
 
   // Обработчик wheel событий (для десктопа и трекпадов)
   const handleWheel = useCallback((event) => {
@@ -76,7 +80,7 @@ export const useMobileScroll = (onScroll, options = {}) => {
         scrollState.current.accumulator = 0;
       }, debounceTime);
     }
-  }, [onScroll, sensitivity, threshold, triggerHaptic, debounceTime, isMobile]);
+  }, [onScroll, sensitivity, threshold, triggerHaptic, debounceTime]);
 
   // Touch события для мобильных устройств
   const handleTouchStart = useCallback((event) => {
@@ -92,7 +96,7 @@ export const useMobileScroll = (onScroll, options = {}) => {
     if (preventPageScroll) {
       event.preventDefault();
     }
-  }, [preventPageScroll, isMobile]);
+  }, [preventPageScroll]);
 
   const handleTouchMove = useCallback((event) => {
     if (!isMobile()) return;
@@ -113,7 +117,7 @@ export const useMobileScroll = (onScroll, options = {}) => {
     
     scrollState.current.lastTouchY = touch.clientY;
     scrollState.current.lastTouchTime = currentTime;
-  }, [preventPageScroll, isMobile]);
+  }, [preventPageScroll]);
 
   const handleTouchEnd = useCallback((event) => {
     if (!isMobile()) return;
@@ -153,7 +157,7 @@ export const useMobileScroll = (onScroll, options = {}) => {
     // Сброс состояния
     scrollState.current.isScrolling = false;
     scrollState.current.velocity = 0;
-  }, [onScroll, triggerHaptic, isMobile]);
+  }, [onScroll, triggerHaptic]);
 
   // Обработчик для клавиатуры
   const handleKeyDown = useCallback((event) => {
@@ -204,7 +208,7 @@ export const useMobileScroll = (onScroll, options = {}) => {
       document.body.style.height = '';
       document.body.classList.remove('portfolio-active');
     };
-  }, [preventPageScroll, isMobile]);
+  }, [preventPageScroll]);
 
   // Подключение всех обработчиков
   useEffect(() => {
@@ -235,7 +239,7 @@ export const useMobileScroll = (onScroll, options = {}) => {
         clearTimeout(scrollState.current.scrollTimeout);
       }
     };
-  }, [handleWheel, handleTouchStart, handleTouchMove, handleTouchEnd, handleKeyDown, isMobile]);
+  }, [handleWheel, handleTouchStart, handleTouchMove, handleTouchEnd, handleKeyDown]);
 
   // Возвращаем дополнительные утилиты
   return {
@@ -245,7 +249,7 @@ export const useMobileScroll = (onScroll, options = {}) => {
   };
 };
 
-// Хук для визуальных подсказок
+// Дополнительный хук для визуальных подсказок
 export const useMobileHints = (projects = []) => {
   const [showHints, setShowHints] = useState(true);
   const [currentHint, setCurrentHint] = useState('swipe');
