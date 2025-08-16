@@ -1,4 +1,3 @@
-# frontend/Dockerfile.local
 FROM node:18-alpine
 
 # Установка git для зависимостей

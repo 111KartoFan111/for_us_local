@@ -6,10 +6,26 @@
   "type": "module",
   "scripts": {
     "start": "node src/app.js",
-    "dev": "nodemon src/app.js",
+    "dev": "nodemon --ignore data/ --ignore backup/ --ignore logs/ --ignore '*.log' src/app.js",
+    "dev:verbose": "nodemon --ignore data/ --ignore backup/ --ignore logs/ --verbose src/app.js",
     "test": "jest",
     "lint": "eslint src/",
     "format": "prettier --write src/"
+  },
+  "nodemonConfig": {
+    "ignore": [
+      "data/**/*",
+      "backup/**/*", 
+      "logs/**/*",
+      "*.log",
+      "*.backup",
+      "*.tmp"
+    ],
+    "ext": "js,mjs,json",
+    "env": {
+      "NODE_ENV": "development"
+    },
+    "delay": "1000"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

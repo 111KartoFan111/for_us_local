@@ -1,4 +1,4 @@
-// frontend/src/pages/Portfolio.js - Убрана статистика проектов
+// frontend/src/pages/Portfolio.js - ПОЛНАЯ ВЕРСИЯ с угловым стеком под 25°
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -7,6 +7,7 @@ import { useQuery } from 'react-query';
 import { useNavigate } from 'react-router-dom';
 import * as THREE from 'three';
 import { projectsAPI } from '../utils/api';
+import { useMobileScroll, useMobileHints } from '../hooks/useMobileScroll';
 
 // Ленивая загрузка оптимизированного 3D компонента
 const ProjectStack3D = React.lazy(() => 
@@ -23,43 +24,265 @@ const Scene3DLoader = () => (
   </div>
 );
 
-// Компонент подсказок для пользователя
-const ScrollHints = ({ show = true }) => {
-  const [visible, setVisible] = useState(show);
-
-  useEffect(() => {
-    if (show) {
-      const timer = setTimeout(() => setVisible(false), 8000);
-      return () => clearTimeout(timer);
-    }
-  }, [show]);
-
-  if (!visible) return null;
+// Компонент мобильных подсказок
+const MobileHints = ({ show, hint, onHide }) => {
+  if (!show) return null;
 
   return (
-    <>
-      <div className="scroll-hint">
-        🖱️ Scroll or use ← → arrows to navigate
-      </div>
-      <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 text-center z-10">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 0.6, y: 0 }}
-          transition={{ duration: 1, delay: 1 }}
-          className="text-xs text-neutral-500 bg-white/80 backdrop-blur-sm px-3 py-1 rounded-full"
-        >
-          Scroll to explore projects
-        </motion.div>
-      </div>
-    </>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 20 }}
+      className="mobile-scroll-hint"
+      onClick={onHide}
+    >
+      {hint}
+    </motion.div>
   );
 };
 
+// Индикатор прогресса для мобильных
+const ProgressIndicator = ({ projects, currentIndex, onProjectSelect }) => {
+  const isMobile = window.innerWidth <= 768;
+  
+  if (!isMobile || projects.length <= 1) return null;
+
+  return (
+    <div className="progress-indicator-mobile">
+      {projects.map((project, index) => (
+        <button
+          key={project.id}
+          onClick={() => onProjectSelect(index)}
+          className={`progress-dot ${index === currentIndex ? 'active' : ''}`}
+          aria-label={`Go to project ${index + 1}: ${project.title}`}
+        />
+      ))}
+    </div>
+  );
+};
+
+// Счетчик проектов
+const ProjectCounter = ({ current, total }) => {
+  const isMobile = window.innerWidth <= 768;
+  
+  if (!isMobile) return null;
+
+  return (
+    <div className="project-counter-mobile">
+      {current + 1} / {total}
+    </div>
+  );
+};
+
+// Компонент фильтров проектов
+const ProjectFilters = ({ filters, currentFilter, onFilterChange, projects }) => {
+  return (
+    <div className="fixed top-20 right-6 z-20 bg-white/90 backdrop-blur-sm rounded-lg border border-neutral-200 p-2">
+      <div className="flex flex-col gap-1">
+        {filters.map((filterOption) => {
+          const projectCount = filterOption === 'ALL' 
+            ? projects.length 
+            : projects.filter(project => project.category === filterOption).length;
+          
+          return (
+            <button
+              key={filterOption}
+              onClick={() => onFilterChange(filterOption)}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors flex items-center justify-between ${
+                currentFilter === filterOption
+                  ? 'bg-neutral-900 text-white'
+                  : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100'
+              }`}
+            >
+              <span>{filterOption}</span>
+              <span className={`ml-2 text-xs ${
+                currentFilter === filterOption
+                  ? 'text-neutral-300'
+                  : 'text-neutral-400'
+              }`}>
+                ({projectCount})
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      
+      {/* Показываем выбранную категорию */}
+      {currentFilter !== 'ALL' && (
+        <div className="mt-2 pt-2 border-t border-neutral-200">
+          <div className="text-xs text-neutral-500 text-center">
+            {currentFilter}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Подсказки навигации для десктопа
+const DesktopNavHints = () => {
+  const isMobile = window.innerWidth <= 768;
+  
+  if (isMobile) return null;
+
+  return (
+    <div className="fixed bottom-6 left-6 z-20">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 0.8 }}
+        transition={{ duration: 0.6 }}
+        className="bg-white/90 backdrop-blur-sm rounded-lg border border-neutral-200 p-3"
+      >
+        <div className="text-xs text-neutral-500 space-y-1">
+          <div className="font-medium text-neutral-700 mb-2">Navigation:</div>
+          <div>🖱️ Scroll to navigate</div>
+          <div>← → Arrow keys</div>
+          <div>Click to view project</div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+// Информационная панель проекта
+const ProjectInfoPanel = ({ project, onNavigate }) => {
+  if (!project) return null;
+
+  const isMobile = window.innerWidth <= 768;
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 30 }}
+      transition={{ duration: 0.4 }}
+      className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-neutral-200 p-6 z-30"
+    >
+      <div className="max-w-4xl mx-auto text-center">
+        
+        {/* Теги и категория */}
+        <div className="flex items-center justify-center space-x-2 mb-2">
+          <span className="text-sm font-medium text-neutral-500 bg-neutral-100 px-2 py-1 rounded">
+            {project.category}
+          </span>
+          {project.featured && (
+            <span className="text-sm font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded">
+              Featured
+            </span>
+          )}
+        </div>
+        
+        {/* Заголовок */}
+        <h2 className="text-2xl lg:text-3xl font-light text-neutral-900 tracking-tight mb-4">
+          {project.title}
+        </h2>
+        
+        {/* Описание */}
+        <p className="text-neutral-600 leading-relaxed mb-6 max-w-2xl mx-auto">
+          {project.description}
+        </p>
+        
+        {/* Технологии */}
+        <div className="flex flex-wrap justify-center gap-2 mb-6">
+          {project.technologies.split(',').slice(0, 5).map((tech, index) => (
+            <span key={index} className="tech-tag-unveil">
+              {tech.trim()}
+            </span>
+          ))}
+          {project.technologies.split(',').length > 5 && (
+            <span className="tech-tag-unveil opacity-60">
+              +{project.technologies.split(',').length - 5} more
+            </span>
+          )}
+        </div>
+        
+        {/* Кнопки действий */}
+        <div className="flex justify-center space-x-4 flex-wrap gap-2">
+          {/* Кастомные кнопки */}
+          {project.customButtons?.map((button, index) => (
+            <a
+              key={index}
+              href={button.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`catalog-button-unveil ${index === 0 ? 'catalog-button-primary' : ''}`}
+            >
+              {button.text}
+            </a>
+          ))}
+          
+          {/* Legacy кнопки */}
+          {(!project.customButtons || project.customButtons.length === 0) && (
+            <>
+              {project.projectUrl && (
+                <a
+                  href={project.projectUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="catalog-button-unveil catalog-button-primary"
+                >
+                  VIEW PROJECT
+                </a>
+              )}
+              {project.githubUrl && (
+                <a
+                  href={project.githubUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="catalog-button-unveil"
+                >
+                  VIEW CODE
+                </a>
+              )}
+            </>
+          )}
+          
+          <button
+            onClick={() => onNavigate(`/portfolio/${project.id}`)}
+            className="catalog-button-unveil"
+          >
+            LEARN MORE
+          </button>
+        </div>
+
+        {/* Дополнительная информация для мобильных */}
+        {isMobile && (
+          <div className="mt-4 pt-4 border-t border-neutral-200">
+            <div className="flex justify-center space-x-6 text-xs text-neutral-500">
+              <div>
+                <span className="font-medium">Released:</span>{' '}
+                {project.releaseDate ? 
+                  new Date(project.releaseDate).getFullYear() : 'N/A'
+                }
+              </div>
+              <div>
+                <span className="font-medium">Status:</span>{' '}
+                {project.status === 'published' ? 'Live' : project.status}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.section>
+  );
+};
+
+// Фоновые эффекты
+const BackgroundEffects = () => (
+  <div className="fixed inset-0 pointer-events-none z-0">
+    {/* Градиентные области для создания атмосферы */}
+    <div className="absolute top-0 left-0 w-1/3 h-1/3 bg-gradient-to-br from-blue-50/30 to-transparent rounded-full blur-3xl"></div>
+    <div className="absolute bottom-0 right-0 w-1/3 h-1/3 bg-gradient-to-tl from-purple-50/20 to-transparent rounded-full blur-3xl"></div>
+    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-1/2 h-1/2 bg-gradient-to-r from-transparent via-neutral-50/10 to-transparent rounded-full blur-3xl"></div>
+  </div>
+);
+
+// Основной компонент Portfolio
 const Portfolio = () => {
   const [filter, setFilter] = useState('ALL');
   const [hoveredProject, setHoveredProject] = useState(null);
+  const [currentProject, setCurrentProject] = useState(0);
   const [is3DReady, setIs3DReady] = useState(false);
-  const [showHints, setShowHints] = useState(true);
   const navigate = useNavigate();
   const canvasRef = useRef();
 
@@ -92,11 +315,37 @@ const Portfolio = () => {
   const filteredProjects = React.useMemo(() => {
     return projects.filter(project => {
       if (filter === 'ALL') return true;
-      
-      // Фильтрация по категориям
       return project.category === filter;
     });
   }, [projects, filter]);
+
+  // Настройка мобильного скролла
+  const handleScroll = React.useCallback((direction) => {
+    if (filteredProjects.length === 0) return;
+    
+    setCurrentProject(prev => {
+      const newIndex = (prev + direction + filteredProjects.length) % filteredProjects.length;
+      // Обновляем hoveredProject при скролле
+      setHoveredProject(filteredProjects[newIndex]);
+      return newIndex;
+    });
+  }, [filteredProjects]);
+
+  const { isMobile } = useMobileScroll(handleScroll, {
+    sensitivity: 0.2,
+    threshold: 40,
+    preventPageScroll: true,
+    enableHaptic: true,
+    debounceTime: 100
+  });
+
+  const { showHints, currentHint, hideHints } = useMobileHints(filteredProjects);
+
+  // Сброс текущего проекта при смене фильтра
+  useEffect(() => {
+    setCurrentProject(0);
+    setHoveredProject(filteredProjects[0] || null);
+  }, [filter, filteredProjects]);
 
   // Предзагрузка критических ресурсов
   useEffect(() => {
@@ -109,36 +358,31 @@ const Portfolio = () => {
     }
   }, [filteredProjects]);
 
-  // Скрываем подсказки при первом взаимодействии
-  useEffect(() => {
-    const handleInteraction = () => {
-      setShowHints(false);
-    };
-
-    window.addEventListener('wheel', handleInteraction, { once: true });
-    window.addEventListener('keydown', handleInteraction, { once: true });
-    
-    return () => {
-      window.removeEventListener('wheel', handleInteraction);
-      window.removeEventListener('keydown', handleInteraction);
-    };
-  }, []);
-
   // Генерируем динамические фильтры
   const filterOptions = React.useMemo(() => {
     const options = ['ALL'];
-    
-    // Добавляем уникальные категории
     categories.forEach(category => {
       if (category && !options.includes(category)) {
         options.push(category);
       }
     });
-    
     return options;
   }, [categories]);
 
-  // Показываем ошибку без черного экрана
+  // Обработчик выбора проекта
+  const handleProjectSelect = (index) => {
+    if (index >= 0 && index < filteredProjects.length) {
+      setCurrentProject(index);
+      setHoveredProject(filteredProjects[index]);
+    }
+  };
+
+  // Обработчик смены фильтра
+  const handleFilterChange = (newFilter) => {
+    setFilter(newFilter);
+  };
+
+  // Показываем ошибку
   if (error) {
     return (
       <motion.div 
@@ -160,7 +404,7 @@ const Portfolio = () => {
     );
   }
 
-  // Показываем лоадер без черного экрана
+  // Показываем лоадер
   if (isLoading) {
     return (
       <motion.div
@@ -212,10 +456,10 @@ const Portfolio = () => {
       className="min-h-screen bg-white overflow-hidden"
     >
 
-      {/* 3D Сцена с оптимизированным скроллом */}
-      <section className="portfolio-3d-scene relative">
+      {/* 3D Сцена с угловым стеком */}
+      <section className="portfolio-3d-scene perspective-stack relative">
         <motion.div 
-          className="canvas-container w-full bg-white"
+          className="canvas-container w-full bg-white gpu-optimized"
           style={{ height: '100vh' }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -224,8 +468,8 @@ const Portfolio = () => {
           <Canvas
             ref={canvasRef}
             camera={{ 
-              position: [0, 0, 8], 
-              fov: 60,
+              position: isMobile ? [0, 1, 5] : [0, 1.5, 6], 
+              fov: isMobile ? 65 : 60,
               near: 0.1,
               far: 1000 
             }}
@@ -235,46 +479,35 @@ const Portfolio = () => {
               gl.shadowMap.enabled = true;
               gl.shadowMap.type = THREE.PCFSoftShadowMap;
               
-              // Оптимизация рендеринга для Mac
+              // Оптимизация рендеринга
               gl.powerPreference = "high-performance";
-              gl.antialias = true;
+              gl.antialias = !isMobile; // Отключаем антиалиасинг на мобильных
+              
+              // Настройка камеры для углового обзора
+              camera.lookAt(0, -0.5, 0); // Смотрим немного вниз
               
               setIs3DReady(true);
             }}
             style={{ background: 'linear-gradient(to bottom, #ffffff 0%, #f8fafc 100%)' }}
-            dpr={Math.min(window.devicePixelRatio, 2)} // Ограничиваем DPR для производительности
+            dpr={isMobile ? 1 : Math.min(window.devicePixelRatio, 2)}
           >
-            {/* Улучшенное освещение для стеклянного эффекта */}
-            <ambientLight intensity={0.4} />
-            <directionalLight
-              position={[10, 10, 5]}
-              intensity={0.8}
-              castShadow
-              shadow-mapSize={[1024, 1024]} // Уменьшено для производительности
-              shadow-camera-near={0.5}
-              shadow-camera-far={50}
-              shadow-camera-left={-10}
-              shadow-camera-right={10}
-              shadow-camera-top={10}
-              shadow-camera-bottom={-10}
-            />
-            <pointLight position={[-10, -10, -5]} intensity={0.3} color="#f1f5f9" />
-            <pointLight position={[5, 5, 5]} intensity={0.4} color="#ffffff" />
-            <pointLight position={[-5, 5, -5]} intensity={0.2} color="#e2e8f0" />
-
-            {/* 3D Стек проектов с оптимизированным скроллом */}
+            {/* Угловой стек проектов */}
             <Suspense fallback={null}>
               <ProjectStack3D 
                 projects={filteredProjects}
-                currentFilter={filter}
+                currentIndex={currentProject}
                 onProjectClick={(project) => {
-                  setHoveredProject(project);
                   navigate(`/portfolio/${project.id}`);
+                }}
+                onProjectHover={(project, isHovered) => {
+                  if (isHovered) {
+                    setHoveredProject(project);
+                  }
                 }}
               />
             </Suspense>
 
-            {/* Отключаем OrbitControls чтобы не мешать скроллу */}
+            {/* Отключаем OrbitControls для полного контроля */}
             <OrbitControls
               enableZoom={false}
               enablePan={false}
@@ -297,168 +530,72 @@ const Portfolio = () => {
             )}
           </AnimatePresence>
 
-          {/* Подсказки для пользователя */}
-          <ScrollHints show={showHints && is3DReady} />
+          {/* Мобильные подсказки */}
+          <AnimatePresence>
+            <MobileHints 
+              show={showHints && is3DReady && isMobile} 
+              hint={currentHint}
+              onHide={hideHints}
+            />
+          </AnimatePresence>
 
         </motion.div>
       </section>
 
-      {/* Информация о текущем проекте - компактная версия */}
+      {/* Фильтры проектов */}
+      <ProjectFilters 
+        filters={filterOptions}
+        currentFilter={filter}
+        onFilterChange={handleFilterChange}
+        projects={projects}
+      />
+
+      {/* Прогресс индикатор для мобильных */}
+      <ProgressIndicator 
+        projects={filteredProjects}
+        currentIndex={currentProject}
+        onProjectSelect={handleProjectSelect}
+      />
+
+      {/* Счетчик проектов для мобильных */}
+      <ProjectCounter 
+        current={currentProject} 
+        total={filteredProjects.length} 
+      />
+
+      {/* Navigation подсказки для десктопа */}
+      <DesktopNavHints />
+
+      {/* Информация о текущем проекте */}
       <AnimatePresence>
         {hoveredProject && (
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 30 }}
-            transition={{ duration: 0.4 }}
-            className="project-title-overlay visible"
-          >
-            <h3 className="font-medium">{hoveredProject.title}</h3>
-            <p className="text-sm opacity-80 mt-1">
-              {hoveredProject.category} • {hoveredProject.technologies.split(',').slice(0, 3).join(', ')}
-            </p>
-          </motion.div>
+          <ProjectInfoPanel 
+            project={hoveredProject}
+            onNavigate={navigate}
+          />
         )}
       </AnimatePresence>
 
-      {/* Фильтры проектов по категориям с счетчиками */}
-      <div className="fixed top-20 right-6 z-20 bg-white/90 backdrop-blur-sm rounded-lg border border-neutral-200 p-2">
-        <div className="flex flex-col gap-1">
-          {filterOptions.map((filterOption) => {
-            // Подсчитываем количество проектов для каждой категории
-            const projectCount = filterOption === 'ALL' 
-              ? projects.length 
-              : projects.filter(project => project.category === filterOption).length;
-            
-            return (
-              <button
-                key={filterOption}
-                onClick={() => setFilter(filterOption)}
-                className={`px-3 py-1 text-xs font-medium rounded transition-colors flex items-center justify-between ${
-                  filter === filterOption
-                    ? 'bg-neutral-900 text-white'
-                    : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100'
-                }`}
-              >
-                <span>{filterOption}</span>
-                <span className={`ml-2 text-xs ${
-                  filter === filterOption
-                    ? 'text-neutral-300'
-                    : 'text-neutral-400'
-                }`}>
-                  ({projectCount})
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        
-        {/* Показываем выбранную категорию */}
-        {filter !== 'ALL' && (
-          <div className="mt-2 pt-2 border-t border-neutral-200">
-            <div className="text-xs text-neutral-500 text-center">
-              {filter}
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Swipe подсказка для первого посещения мобильных */}
+      {isMobile && is3DReady && filteredProjects.length > 1 && (
+        <AnimatePresence>
+          {showHints && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-none"
+            >
+              <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm font-medium">
+                👆 Swipe up/down to browse projects
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
 
-      {/* ✅ УДАЛЕН БЛОК СО СТАТИСТИКОЙ ПРОЕКТОВ - Navigation подсказки теперь одни */}
-      <div className="fixed bottom-6 left-6 z-20">
-        {/* Navigation подсказки */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 0.8 }}
-          transition={{ duration: 0.6 }}
-          className="bg-white/90 backdrop-blur-sm rounded-lg border border-neutral-200 p-3"
-        >
-          <div className="text-xs text-neutral-500 space-y-1">
-            <div className="font-medium text-neutral-700 mb-2">Navigation:</div>
-            <div>🖱️ Scroll to rotate</div>
-            <div>← → Arrow keys</div>
-            <div>Click to view project</div>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Информация о проекте при наведении - полная версия */}
-      <AnimatePresence>
-        {hoveredProject && (
-          <motion.section
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 30 }}
-            transition={{ duration: 0.4 }}
-            className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-neutral-200 p-6 z-30"
-          >
-            <div className="max-w-4xl mx-auto text-center">
-              
-              <div className="flex items-center justify-center space-x-2 mb-2">
-                <span className="text-sm font-medium text-neutral-500 bg-neutral-100 px-2 py-1 rounded">
-                  {hoveredProject.category}
-                </span>
-              </div>
-              
-              <h2 className="text-2xl lg:text-3xl font-light text-neutral-900 tracking-tight mb-4">
-                {hoveredProject.title}
-              </h2>
-              
-              <p className="text-neutral-600 leading-relaxed mb-6 max-w-2xl mx-auto">
-                {hoveredProject.description}
-              </p>
-              
-              <div className="flex flex-wrap justify-center gap-2 mb-6">
-                {hoveredProject.technologies.split(',').map((tech, index) => (
-                  <span key={index} className="tech-tag-unveil">
-                    {tech.trim()}
-                  </span>
-                ))}
-              </div>
-              
-              <div className="flex justify-center space-x-4 flex-wrap gap-2">
-                {hoveredProject.projectUrl && (
-                  <a
-                    href={hoveredProject.projectUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="catalog-button-unveil catalog-button-primary"
-                  >
-                    VIEW PROJECT
-                  </a>
-                )}
-                {hoveredProject.githubUrl && (
-                  <a
-                    href={hoveredProject.githubUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="catalog-button-unveil"
-                  >
-                    VIEW CODE
-                  </a>
-                )}
-                {/* Показываем кастомные кнопки */}
-                {hoveredProject.customButtons?.map((button, index) => (
-                  <a
-                    key={index}
-                    href={button.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="catalog-button-unveil"
-                  >
-                    {button.text}
-                  </a>
-                ))}
-                <button
-                  onClick={() => navigate(`/portfolio/${hoveredProject.id}`)}
-                  className="catalog-button-unveil"
-                >
-                  LEARN MORE
-                </button>
-              </div>
-            </div>
-          </motion.section>
-        )}
-      </AnimatePresence>
+      {/* Фоновые эффекты */}
+      <BackgroundEffects />
 
     </motion.div>
   );

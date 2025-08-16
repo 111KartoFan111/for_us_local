@@ -1,0 +1,19 @@
+{
+  "watch": ["src/"],
+  "ext": "js,mjs",
+  "ignore": [
+    "data/**/*",
+    "backup/**/*",
+    "logs/**/*",
+    "*.log",
+    "*.backup",
+    "*.tmp",
+    "node_modules/**/*"
+  ],
+  "exec": "node src/app.js",
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "delay": 1000,
+  "verbose": false
+}

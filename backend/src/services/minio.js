@@ -175,7 +175,7 @@ async function uploadFile(file, folder = 'uploads') {
     ]);
     
     // ✅ URL через nginx proxy
-    const fileUrl = `https://kartofan.online/media/${bucketName}/${fileName}`;
+    const fileUrl = `http://localhost:9000/${bucketName}/${fileName}`;
     
     console.log('✅ File uploaded successfully:', fileName);
     console.log('🔗 Public URL:', fileUrl);
@@ -235,7 +235,7 @@ async function getFileUrl(fileName, expiry = 24 * 60 * 60) {
     const bucketName = process.env.MINIO_BUCKET_NAME || 'portfolio-files';
     
     // Для публичных файлов через nginx не нужны signed URLs
-    return `https://kartofan.online/media/${bucketName}/${fileName}`;
+    return `http://localhost:9000/${bucketName}/${fileName}`;
     
   } catch (error) {
     console.error('❌ URL generation error:', error);

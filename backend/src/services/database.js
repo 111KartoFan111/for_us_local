@@ -1,4 +1,4 @@
-// backend/src/services/database.js - ОБНОВЛЕННАЯ ВЕРСИЯ с миграцией releaseDate
+// backend/src/services/database.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 import { Low } from 'lowdb';
 import path from 'path';
 import fs from 'fs/promises';
@@ -17,9 +17,31 @@ class JSONFileAdapter {
   async read() {
     try {
       const data = await fs.readFile(this.filename, 'utf8');
-      return JSON.parse(data);
+      
+      // ✅ ИСПРАВЛЕНИЕ: Проверяем, что файл не пустой
+      if (!data || data.trim() === '') {
+        console.log('📄 Database file is empty, returning null for initialization');
+        return null;
+      }
+      
+      // ✅ ИСПРАВЛЕНИЕ: Дополнительная проверка JSON
+      try {
+        return JSON.parse(data);
+      } catch (parseError) {
+        console.error('❌ JSON parse error in database file:', parseError.message);
+        console.log('📝 File content preview:', data.substring(0, 100));
+        
+        // Создаем backup поврежденного файла
+        const backupPath = `${this.filename}.corrupted.${Date.now()}`;
+        await fs.writeFile(backupPath, data);
+        console.log(`💾 Corrupted file backed up to: ${backupPath}`);
+        
+        return null; // Вернуть null для пересоздания базы
+      }
+      
     } catch (error) {
       if (error.code === 'ENOENT') {
+        console.log('📄 Database file doesn\'t exist, will be created');
         return null; // File doesn't exist
       }
       throw error;
@@ -29,7 +51,16 @@ class JSONFileAdapter {
   async write(data) {
     const dir = path.dirname(this.filename);
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(this.filename, JSON.stringify(data, null, 2), 'utf8');
+    
+    // ✅ ИСПРАВЛЕНИЕ: Более безопасная запись JSON
+    try {
+      const jsonString = JSON.stringify(data, null, 2);
+      await fs.writeFile(this.filename, jsonString, 'utf8');
+      console.log('💾 Database successfully written to disk');
+    } catch (writeError) {
+      console.error('❌ Error writing database:', writeError);
+      throw writeError;
+    }
   }
 }
 
@@ -42,13 +73,38 @@ const defaultData = {
   projects: [],
   settings: {
     studio: {
-      aboutText: "",
-      clients: [],
-      services: [],
-      recognitions: []
+      aboutText: "Welcome to our creative studio. We craft exceptional digital experiences that blend innovation with artistic vision.",
+      clients: [
+        "Google",
+        "Apple", 
+        "Microsoft",
+        "Adobe",
+        "Spotify"
+      ],
+      services: [
+        "Web Development",
+        "3D Visualization", 
+        "UI/UX Design",
+        "Brand Identity",
+        "Digital Strategy"
+      ],
+      recognitions: [
+        "Awwwards Site of the Day 2024",
+        "CSS Design Awards Winner",
+        "FWA of the Month"
+      ]
     },
     contact: {
-      contactButtons: []
+      contactButtons: [
+        {
+          text: "Email",
+          url: "mailto:contact@example.com"
+        },
+        {
+          text: "LinkedIn", 
+          url: "https://linkedin.com/company/example"
+        }
+      ]
     }
   }
 };
@@ -87,7 +143,7 @@ async function migrateDatabase() {
 }
 
 /**
- * Initialize database and create default admin user
+ * ✅ ИСПРАВЛЕННАЯ функция инициализации базы данных
  */
 async function initializeDatabase() {
   try {
@@ -96,40 +152,86 @@ async function initializeDatabase() {
     // Ensure data directory exists
     const dataDir = path.dirname(DB_PATH);
     await fs.mkdir(dataDir, { recursive: true });
-    console.log('✅ Data directory created');
+    console.log('✅ Data directory ensured');
+    
+    // ✅ ИСПРАВЛЕНИЕ: Проверяем существование файла базы данных
+    let fileExists = false;
+    try {
+      await fs.access(DB_PATH);
+      fileExists = true;
+      console.log('📄 Database file exists');
+    } catch {
+      console.log('📄 Database file does not exist, will create new');
+    }
+    
+    // ✅ ИСПРАВЛЕНИЕ: Проверяем содержимое файла если он существует
+    if (fileExists) {
+      try {
+        const fileContent = await fs.readFile(DB_PATH, 'utf8');
+        if (!fileContent || fileContent.trim() === '') {
+          console.log('📄 Database file is empty, removing...');
+          await fs.unlink(DB_PATH);
+          fileExists = false;
+        } else {
+          // Проверяем валидность JSON
+          try {
+            JSON.parse(fileContent);
+            console.log('✅ Database file is valid JSON');
+          } catch (parseError) {
+            console.log('❌ Database file contains invalid JSON, recreating...');
+            const backupPath = `${DB_PATH}.backup.${Date.now()}`;
+            await fs.rename(DB_PATH, backupPath);
+            console.log(`💾 Invalid database backed up to: ${backupPath}`);
+            fileExists = false;
+          }
+        }
+      } catch (readError) {
+        console.error('❌ Error reading database file:', readError.message);
+        fileExists = false;
+      }
+    }
     
     // Initialize LowDB with custom adapter
     const adapter = new JSONFileAdapter(DB_PATH);
     db = new Low(adapter, defaultData);
     
     // Read the database
+    console.log('📖 Reading database...');
     await db.read();
-    console.log('✅ Database file read');
+    console.log('✅ Database file read successfully');
     
-    // If database is empty, set default data
+    // If database is empty or null, set default data
     if (!db.data) {
-      db.data = defaultData;
-      console.log('✅ Default data set');
+      console.log('📝 Setting default database structure...');
+      db.data = { ...defaultData };
+      await db.write();
+      console.log('✅ Default data written to database');
     }
     
     // Ensure all collections exist
-    if (!db.data.users) db.data.users = [];
-    if (!db.data.projects) db.data.projects = [];
-    if (!db.data.settings) db.data.settings = defaultData.settings;
+    if (!db.data.users) {
+      db.data.users = [];
+      console.log('✅ Users collection initialized');
+    }
+    if (!db.data.projects) {
+      db.data.projects = [];
+      console.log('✅ Projects collection initialized');
+    }
+    if (!db.data.settings) {
+      db.data.settings = defaultData.settings;
+      console.log('✅ Settings collection initialized');
+    }
     
     // Ensure studio field exists
     if (!db.data.settings.studio) {
-      db.data.settings.studio = {
-        aboutText: "",
-        clients: [],
-        services: [],
-        recognitions: []
-      };
+      db.data.settings.studio = defaultData.settings.studio;
+      console.log('✅ Studio settings initialized');
     }
     
     // Ensure contact field exists
     if (!db.data.settings.contact) {
-      db.data.settings.contact = { contactButtons: [] };
+      db.data.settings.contact = defaultData.settings.contact;
+      console.log('✅ Contact settings initialized');
     }
     
     // ✅ ВЫПОЛНЯЕМ МИГРАЦИЮ
@@ -138,15 +240,44 @@ async function initializeDatabase() {
     // Create default admin user if doesn't exist
     await createDefaultAdmin();
     
-    // Write to file
+    // Write to file to ensure everything is saved
     await db.write();
     
     console.log('✅ Database initialized successfully');
-    console.log(`📊 Users: ${db.data.users.length}, Projects: ${db.data.projects.length}`);
+    console.log(`📊 Current state: Users: ${db.data.users.length}, Projects: ${db.data.projects.length}`);
+    
     return db;
     
   } catch (error) {
     console.error('❌ Error initializing database:', error);
+    
+    // ✅ ИСПРАВЛЕНИЕ: В случае критической ошибки, пересоздаем базу
+    if (error.message.includes('JSON') || error.message.includes('parse')) {
+      console.log('🔄 Attempting to recreate database due to JSON error...');
+      
+      try {
+        // Удаляем поврежденный файл
+        await fs.unlink(DB_PATH).catch(() => {});
+        
+        // Пересоздаем базу
+        const adapter = new JSONFileAdapter(DB_PATH);
+        db = new Low(adapter, defaultData);
+        db.data = { ...defaultData };
+        await db.write();
+        
+        // Создаем админа
+        await createDefaultAdmin();
+        await db.write();
+        
+        console.log('✅ Database recreated successfully');
+        return db;
+        
+      } catch (recreateError) {
+        console.error('❌ Failed to recreate database:', recreateError);
+        throw recreateError;
+      }
+    }
+    
     throw error;
   }
 }
@@ -176,6 +307,7 @@ async function createDefaultAdmin() {
     
     db.data.users.push(adminUser);
     console.log(`✅ Default admin user created: ${adminUsername}`);
+    console.log(`🔑 Password: ${adminPassword}`);
   } else {
     console.log(`👤 Admin user already exists: ${adminUsername}`);
   }
@@ -303,17 +435,12 @@ function getSettings() {
   
   // Ensure studio field exists
   if (!settings.studio) {
-    settings.studio = {
-      aboutText: "",
-      clients: [],
-      services: [],
-      recognitions: []
-    };
+    settings.studio = defaultData.settings.studio;
   }
   
   // Ensure contact field exists
   if (!settings.contact) {
-    settings.contact = { contactButtons: [] };
+    settings.contact = defaultData.settings.contact;
   }
   
   return settings;

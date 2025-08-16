@@ -1,0 +1,115 @@
+# docker-compose.local.yml - Локальная разработка
+version: '3.8'
+
+services:
+  # Frontend (React) - порт 3100
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.local
+    ports:
+      - "3100:3000"
+    depends_on:
+      - backend
+    environment:
+      - REACT_APP_API_URL=http://localhost:8100/api
+      - REACT_APP_MINIO_URL=http://localhost:9000
+      - CHOKIDAR_USEPOLLING=true  # Для hot reload в Docker
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/package.json:/app/package.json
+      - /app/node_modules  # Prevent overwrite
+    networks:
+      - portfolio-network
+    restart: unless-stopped
+    command: npm start
+
+  # Backend (Express) - порт 8100
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.local
+    ports:
+      - "8100:8100"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=development
+      - PORT=8100
+      - CORS_ORIGIN=http://localhost:3100
+      - JWT_SECRET=local-dev-secret-key-2025
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin123
+      # MinIO для локальной разработки
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=localadmin
+      - MINIO_SECRET_KEY=localadmin123
+      - MINIO_BUCKET_NAME=portfolio-files
+      - MINIO_PUBLIC_URL=http://localhost:9000
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/data:/app/data
+      - ./backend/package.json:/app/package.json
+      - /app/node_modules  # Prevent overwrite
+    networks:
+      - portfolio-network
+    restart: unless-stopped
+    command: npm run dev
+
+  # MinIO (File Storage) - порт 9000
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=localadmin
+      - MINIO_ROOT_PASSWORD=localadmin123
+      - MINIO_REGION_NAME=us-east-1
+    volumes:
+      - minio_data_local:/data
+      - minio_config_local:/root/.minio
+    command: server /data --address ":9000" --console-address ":9001"
+    networks:
+      - portfolio-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Database backup utility (опционально)
+  backup:
+    image: alpine:latest
+    volumes:
+      - ./backup:/backup
+      - ./backend/data:/app/data:ro
+    command: >
+      sh -c "
+        apk add --no-cache tar gzip &&
+        while true; do
+          sleep 3600;
+          tar -czf /backup/db-backup-$$(date +%Y%m%d-%H%M%S).tar.gz -C /app/data .;
+          find /backup -name '*.tar.gz' -mtime +7 -delete;
+        done
+      "
+    networks:
+      - portfolio-network
+    restart: unless-stopped
+    profiles: ["backup"]  # Запускать только при необходимости
+
+networks:
+  portfolio-network:
+    driver: bridge
+
+volumes:
+  minio_data_local:
+    driver: local
+  minio_config_local:
+    driver: local
