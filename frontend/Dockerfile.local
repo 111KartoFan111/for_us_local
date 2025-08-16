@@ -1,0 +1,22 @@
+# frontend/Dockerfile.local
+FROM node:18-alpine
+
+# Установка git для зависимостей
+RUN apk add --no-cache git
+
+WORKDIR /app
+
+# Копируем package файлы
+COPY package*.json ./
+
+# Устанавливаем зависимости
+RUN npm install
+
+# Копируем исходный код
+COPY . .
+
+# Открываем порт
+EXPOSE 3000
+
+# Запускаем в режиме разработки
+CMD ["npm", "start"]
