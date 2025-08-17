@@ -1,18 +1,19 @@
-// frontend/src/components/3d/ProjectCatalog3D.js - Исправленная версия
-import React, { useRef, useState, useEffect, useMemo } from 'react';
+// frontend/src/components/3d/ProjectCatalog3D.js - ГОРИЗОНТАЛЬНЫЙ КАТАЛОГ как на unveil.fr
+import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useTexture } from '@react-three/drei';
 import { useNavigate } from 'react-router-dom';
 import * as THREE from 'three';
 
-// Минимальный компонент карточки - ТОЛЬКО изображение
+// Минимальный компонент карточки проекта
 const ProjectCatalogCard = React.memo(({ 
   project, 
   position = [0, 0, 0], 
   index = 0,
   onClick,
   onHover,
-  hoveredProject = null
+  hoveredProject = null,
+  isVisible = true
 }) => {
   const meshRef = useRef();
   const groupRef = useRef();
@@ -21,39 +22,49 @@ const ProjectCatalogCard = React.memo(({
   // Проверяем, наведен ли именно этот проект
   const isHovered = hoveredProject?.id === project.id;
 
-  // URL текстуры
+  // URL текстуры с fallback
   const textureUrl = useMemo(() => {
     return project.imageUrl || `data:image/svg+xml;base64,${btoa(`
-      <svg width="400" height="560" viewBox="0 0 400 560" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="400" height="560" fill="#f1f5f9"/>
-        <circle cx="200" cy="280" r="60" fill="#cbd5e1"/>
-        <text x="200" y="350" text-anchor="middle" fill="#64748b" font-family="system-ui" font-size="16" font-weight="500">${project.title}</text>
+      <svg width="320" height="450" viewBox="0 0 320 450" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="320" height="450" fill="#f8fafc"/>
+        <circle cx="160" cy="200" r="40" fill="#e2e8f0"/>
+        <text x="160" y="280" text-anchor="middle" fill="#64748b" font-family="system-ui" font-size="14" font-weight="500">${project.title}</text>
+        <text x="160" y="300" text-anchor="middle" fill="#94a3b8" font-family="system-ui" font-size="10">${project.category || 'Project'}</text>
       </svg>
     `)}`;
-  }, [project.imageUrl, project.title]);
+  }, [project.imageUrl, project.title, project.category]);
 
-  // Загружаем текстуру с правильными настройками
+  // Загружаем текстуру
   const texture = useTexture(textureUrl, (texture) => {
     texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
-    texture.flipY = true; // ✅ УБИРАЕМ ПЕРЕВОРОТ
+    texture.flipY = true;
   });
 
-  // Простая анимация - только подъем при hover
+  // Плавная анимация только при hover
   useFrame((state) => {
-    if (!groupRef.current) return;
+    if (!groupRef.current || !isVisible) return;
     
     const time = state.clock.elapsedTime;
-    const floatY = Math.sin(time * 0.5 + index * 0.8) * 0.03;
     
-    const targetY = position[1] + floatY + (isHovered ? 0.8 : 0);
-    const targetScale = isHovered ? 1.08 : 1.0;
+    // Легкое парение
+    const floatY = Math.sin(time * 0.8 + index * 1.2) * 0.02;
     
-    groupRef.current.position.y += (targetY - groupRef.current.position.y) * 0.1;
-    groupRef.current.scale.setScalar(
-      groupRef.current.scale.x + (targetScale - groupRef.current.scale.x) * 0.1
-    );
+    // Позиционирование
+    const targetY = position[1] + floatY + (isHovered ? 0.3 : 0);
+    const targetScale = isHovered ? 1.05 : 1.0;
+    const targetZ = position[2] + (isHovered ? 0.1 : 0);
+    
+    // Плавное движение
+    groupRef.current.position.x = position[0];
+    groupRef.current.position.y += (targetY - groupRef.current.position.y) * 0.08;
+    groupRef.current.position.z += (targetZ - groupRef.current.position.z) * 0.08;
+    
+    // Плавное масштабирование
+    const currentScale = groupRef.current.scale.x;
+    const newScale = currentScale + (targetScale - currentScale) * 0.08;
+    groupRef.current.scale.setScalar(newScale);
   });
 
   const handleClick = (event) => {
@@ -91,6 +102,8 @@ const ProjectCatalogCard = React.memo(({
     document.body.style.cursor = 'auto';
   };
 
+  if (!isVisible) return null;
+
   return (
     <group ref={groupRef} position={position}>
       
@@ -102,13 +115,13 @@ const ProjectCatalogCard = React.memo(({
         onPointerLeave={handlePointerLeave}
         visible={false}
       >
-        <planeGeometry args={[4.2, 5.8]} />
+        <planeGeometry args={[3.2, 4.5]} />
         <meshBasicMaterial transparent opacity={0} />
       </mesh>
 
-      {/* ТОЛЬКО изображение - плоская плоскость БЕЗ ПЕРЕВОРОТА */}
+      {/* Основное изображение проекта */}
       <mesh ref={meshRef} position={[0, 0, 0]}>
-        <planeGeometry args={[4, 5.6]} />
+        <planeGeometry args={[3, 4.2]} />
         <meshBasicMaterial
           map={texture}
           transparent
@@ -117,14 +130,34 @@ const ProjectCatalogCard = React.memo(({
         />
       </mesh>
 
-      {/* Маленький индикатор для избранных - только при необходимости */}
+      {/* Рамка */}
+      <mesh position={[0, 0, -0.01]}>
+        <planeGeometry args={[3.1, 4.3]} />
+        <meshBasicMaterial
+          color="#ffffff"
+          transparent
+          opacity={0.9}
+        />
+      </mesh>
+
+      {/* Тень */}
+      <mesh position={[0.05, -0.05, -0.05]}>
+        <planeGeometry args={[3.0, 4.2]} />
+        <meshBasicMaterial
+          color="#000000"
+          transparent
+          opacity={isHovered ? 0.15 : 0.08}
+        />
+      </mesh>
+
+      {/* Индикатор избранного проекта */}
       {project.featured && (
-        <mesh position={[1.8, 2.6, 0.05]}>
-          <circleGeometry args={[0.1, 8]} />
+        <mesh position={[1.4, 1.9, 0.05]}>
+          <circleGeometry args={[0.08, 8]} />
           <meshBasicMaterial
             color="#0066ff"
             transparent
-            opacity={0.8}
+            opacity={0.9}
           />
         </mesh>
       )}
@@ -132,53 +165,113 @@ const ProjectCatalogCard = React.memo(({
   );
 });
 
-// Основной компонент каталога
+// Основной компонент горизонтального каталога
 export const ProjectCatalog3D = ({ projects = [], onProjectClick }) => {
   const groupRef = useRef();
   const [hoveredProject, setHoveredProject] = useState(null);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [isScrolling, setIsScrolling] = useState(false);
 
-  // Расположение проектов
-  const getProjectPosition = (index) => {
-    const spacing = 5.0;
-    const x = (index * spacing) - scrollOffset;
+  // Определяем параметры сетки
+  const CARD_SPACING = 4.0; // Расстояние между карточками
+  const VIEWPORT_WIDTH = 12; // Ширина видимой области
+  const MAX_SCROLL = Math.max(0, (projects.length - 1) * CARD_SPACING - VIEWPORT_WIDTH);
+
+  // Вычисляем позицию каждого проекта
+  const getProjectPosition = useCallback((index) => {
+    const x = (index * CARD_SPACING) - scrollOffset;
     const y = 0;
-    const z = Math.sin(index * 0.1) * 0.05;
+    const z = 0;
     
     return [x, y, z];
-  };
+  }, [scrollOffset]);
+
+  // Определяем видимые проекты для оптимизации
+  const visibleProjects = useMemo(() => {
+    const startIndex = Math.max(0, Math.floor((scrollOffset - CARD_SPACING) / CARD_SPACING));
+    const endIndex = Math.min(projects.length - 1, Math.ceil((scrollOffset + VIEWPORT_WIDTH + CARD_SPACING) / CARD_SPACING));
+    
+    return projects.map((project, index) => ({
+      ...project,
+      index,
+      isVisible: index >= startIndex && index <= endIndex,
+      position: getProjectPosition(index)
+    }));
+  }, [projects, scrollOffset, getProjectPosition]);
 
   // Обработчик скролла
   useEffect(() => {
-    let isScrolling = false;
+    let scrollTimeout;
     
     const handleWheel = (event) => {
       event.preventDefault();
       
-      if (isScrolling) return;
-      isScrolling = true;
+      setIsScrolling(true);
       
-      const scrollSpeed = 5.0;
+      // Нормализуем deltaY для разных устройств
+      let normalizedDelta = event.deltaY;
+      if (event.deltaMode === 1) normalizedDelta *= 16;
+      else if (event.deltaMode === 2) normalizedDelta *= window.innerHeight;
       
-      setTimeout(() => {
+      // Применяем скролл
+      setScrollOffset(prev => {
+        const scrollSpeed = 0.02; // Чувствительность скролла
+        const newOffset = prev + (normalizedDelta * scrollSpeed);
+        return Math.max(0, Math.min(newOffset, MAX_SCROLL));
+      });
+
+      // Останавливаем индикатор скролла
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        setIsScrolling(false);
+      }, 150);
+    };
+
+    // Обработчик клавиш
+    const handleKeyDown = (event) => {
+      if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+        return;
+      }
+      
+      let direction = 0;
+      
+      switch (event.key) {
+        case 'ArrowLeft':
+          direction = -1;
+          break;
+        case 'ArrowRight':
+          direction = 1;
+          break;
+        default:
+          return;
+      }
+      
+      if (direction !== 0) {
+        event.preventDefault();
         setScrollOffset(prev => {
-          const newOffset = prev + (event.deltaY > 0 ? scrollSpeed : -scrollSpeed);
-          const maxOffset = Math.max(0, (projects.length - 1) * scrollSpeed);
-          return Math.max(0, Math.min(newOffset, maxOffset));
+          const newOffset = prev + (direction * CARD_SPACING);
+          return Math.max(0, Math.min(newOffset, MAX_SCROLL));
         });
-        isScrolling = false;
-      }, 50);
+      }
     };
 
     window.addEventListener('wheel', handleWheel, { passive: false });
-    return () => window.removeEventListener('wheel', handleWheel);
-  }, [projects.length]);
+    window.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
+      clearTimeout(scrollTimeout);
+    };
+  }, [MAX_SCROLL]);
 
-  // Анимация группы
+  // Плавная анимация скролла
   useFrame(() => {
     if (groupRef.current) {
       const targetX = -scrollOffset;
-      groupRef.current.position.x += (targetX - groupRef.current.position.x) * 0.1;
+      const currentX = groupRef.current.position.x;
+      const newX = currentX + (targetX - currentX) * 0.08;
+      groupRef.current.position.x = newX;
     }
   });
 
@@ -187,19 +280,101 @@ export const ProjectCatalog3D = ({ projects = [], onProjectClick }) => {
   };
 
   return (
-    <group ref={groupRef}>
-      {projects.map((project, index) => (
-        <ProjectCatalogCard
-          key={project.id}
-          project={project}
-          index={index}
-          position={getProjectPosition(index)}
-          onClick={onProjectClick}
-          onHover={handleProjectHover}
-          hoveredProject={hoveredProject}
-        />
-      ))}
-    </group>
+    <>
+      {/* Основная группа проектов */}
+      <group ref={groupRef}>
+        {visibleProjects.map((project) => (
+          <ProjectCatalogCard
+            key={project.id}
+            project={project}
+            index={project.index}
+            position={project.position}
+            onClick={onProjectClick}
+            onHover={handleProjectHover}
+            hoveredProject={hoveredProject}
+            isVisible={project.isVisible}
+          />
+        ))}
+      </group>
+
+      {/* Индикатор прогресса */}
+      {projects.length > 0 && MAX_SCROLL > 0 && (
+        <group position={[0, -3, 0]}>
+          {/* Полоса прогресса */}
+          <mesh position={[0, 0, 0]}>
+            <planeGeometry args={[8, 0.02]} />
+            <meshBasicMaterial
+              color="#e2e8f0"
+              transparent
+              opacity={0.6}
+            />
+          </mesh>
+          
+          {/* Индикатор текущей позиции */}
+          <mesh position={[
+            -4 + (8 * (scrollOffset / MAX_SCROLL)), 
+            0, 
+            0.01
+          ]}>
+            <planeGeometry args={[1, 0.04]} />
+            <meshBasicMaterial
+              color="#0066ff"
+              transparent
+              opacity={isScrolling ? 1 : 0.7}
+            />
+          </mesh>
+        </group>
+      )}
+
+      {/* Навигационные стрелки */}
+      {scrollOffset > 0 && (
+        <group position={[-6, 0, 1]}>
+          <mesh
+            onClick={() => {
+              setScrollOffset(prev => Math.max(0, prev - CARD_SPACING * 3));
+            }}
+          >
+            <planeGeometry args={[0.5, 0.5]} />
+            <meshBasicMaterial
+              color="#0066ff"
+              transparent
+              opacity={0.7}
+            />
+          </mesh>
+        </group>
+      )}
+
+      {scrollOffset < MAX_SCROLL && (
+        <group position={[6, 0, 1]}>
+          <mesh
+            onClick={() => {
+              setScrollOffset(prev => Math.min(MAX_SCROLL, prev + CARD_SPACING * 3));
+            }}
+          >
+            <planeGeometry args={[0.5, 0.5]} />
+            <meshBasicMaterial
+              color="#0066ff"
+              transparent
+              opacity={0.7}
+            />
+          </mesh>
+        </group>
+      )}
+
+      {/* Подсказка для пользователя */}
+      {projects.length > 3 && (
+        <group position={[0, -4, 0]}>
+          <mesh>
+            <planeGeometry args={[6, 0.3]} />
+            <meshBasicMaterial
+              color="#ffffff"
+              transparent
+              opacity={0.8}
+            />
+          </mesh>
+        </group>
+      )}
+    </>
   );
 };
 
